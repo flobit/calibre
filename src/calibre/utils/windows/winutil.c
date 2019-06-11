@@ -374,6 +374,50 @@ winutil_strftime(PyObject *self, PyObject *args)
     return NULL;
 }
 
+static inline int
+py_to_wchar(PyObject *obj, wchar_t **output) {
+	if (!PyUnicode_Check(obj)) {
+		if (obj == Py_None) { *output = NULL; return 1; }
+		PyErr_SetString(PyExc_TypeError, "unicode object expected");
+		return 0;
+	}
+#if PY_MAJOR_VERSION < 3
+	*output = PyUnicode_AS_UNICODE(obj);
+#else
+	*output = PyUnicode_AsWideCharString(obj, NULL);
+#endif
+	return 1;
+}
+
+static inline void
+free_wchar_buffer(wchar_t **buf) {
+#if PY_MAJOR_VERSION >= 3
+	PyMem_Free(*buf);
+#endif
+	*buf = NULL;
+}
+
+static PyObject *
+add_to_recent_docs(PyObject *self, PyObject *args) {
+	wchar_t *path, *app_id;
+	if (!PyArg_ParseTuple("O&O&", py_to_wchar, &path, &app_id)) return NULL;
+	if (app_id) {
+		IShellItem *item;
+		HRESULT hr = SHCreateItemFromParsingName(path, NULL, IID_PPV_ARGS(&item));
+		if (SUCCEEDED(hr)) {
+			SHARDAPPIDINFO info;
+			info.psi = item;
+			info.pszAppID = app_id;
+			SHAddToRecentDocs(SHARD_APPIDINFO, &info);
+			item->Release();
+		}
+	} else {
+		SHAddToRecentDocs(SHARD_PATHW, path);
+	}
+	free_wchar_buffer(&path); free_wchar_buffer(&app_id);
+	Py_RETURN_NONE;
+}
+
 static char winutil_doc[] = "Defines utility methods to interface with windows.";
 
 static PyMethodDef winutil_methods[] = {
@@ -440,6 +484,10 @@ be a unicode string. Returns unicode strings."
 
     {"move_file", (PyCFunction)winutil_move_file, METH_VARARGS,
         "move_file()\n\nRename the specified file."
+    },
+
+    {"add_to_recent_docs", (PyCFunction)add_to_recent_docs, METH_VARARGS,
+        "add_to_recent_docs()\n\nAdd a path to the recent documents list"
     },
 
     {NULL, NULL, 0, NULL}
